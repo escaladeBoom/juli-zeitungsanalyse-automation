@@ -1,0 +1,166 @@
+# .github/workflows/daily-newspaper-analysis.yml
+name: 🤖 Automatische Zeitungsanalyse
+
+on:
+  # Täglich um 6:00 UTC (8:00 MEZ) ausführen
+  schedule:
+    - cron: '0 6 * * *'
+  
+  # Auch manuell ausführbar
+  workflow_dispatch:
+    inputs:
+      force_analysis:
+        description: 'Analyse erzwingen (auch wenn heute schon analysiert)'
+        required: false
+        default: 'false'
+        type: boolean
+
+jobs:
+  analyze-newspapers:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    
+    steps:
+    - name: 📥 Code auschecken
+      uses: actions/checkout@v4
+    
+    - name: 🐍 Python Setup
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+        cache: 'pip'
+    
+    - name: 📦 Dependencies installieren
+      run: |
+        pip install --upgrade pip
+        pip install google-generativeai supabase pypdf requests python-dotenv
+    
+    - name: 🔍 App-Status prüfen
+      run: |
+        echo "Prüfe App-Status..."
+        curl -f ${{ secrets.STREAMLIT_APP_URL }} || echo "App momentan nicht erreichbar"
+    
+    - name: 🤖 Automatische Analyse starten
+      env:
+        SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+        SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+        GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        STREAMLIT_APP_URL: ${{ secrets.STREAMLIT_APP_URL }}
+        FORCE_ANALYSIS: ${{ github.event.inputs.force_analysis }}
+      run: |
+        echo "🚀 Starte automatische Zeitungsanalyse..."
+        python auto_analyzer.py
+    
+    - name: 📋 Log-Datei hochladen
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: analysis-logs-${{ github.run_number }}
+        path: auto_analyzer.log
+        retention-days: 30
+    
+    - name: 📧 Benachrichtigung bei Fehler
+      if: failure()
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const { owner, repo } = context.repo;
+          const run_url = `https://github.com/${owner}/${repo}/actions/runs/${context.runId}`;
+          
+          await github.rest.issues.create({
+            owner: owner,
+            repo: repo,
+            title: `❌ Automatische Zeitungsanalyse fehlgeschlagen - ${new Date().toISOString().split('T')[0]}`,
+            body: `
+            ## 🚨 Automatische Zeitungsanalyse ist fehlgeschlagen
+            
+            **Zeitpunkt:** ${new Date().toISOString()}
+            **Workflow:** [Logs ansehen](${run_url})
+            
+            ### Mögliche Ursachen:
+            - App ist offline
+            - API-Keys sind abgelaufen
+            - Zeitungswebsite ist nicht erreichbar
+            - Supabase-Verbindung unterbrochen
+            
+            ### Nächste Schritte:
+            1. Logs in der GitHub Action prüfen
+            2. App-Status überprüfen: ${process.env.STREAMLIT_APP_URL || 'URL nicht gesetzt'}
+            3. API-Keys in Secrets überprüfen
+            4. Manually Workflow erneut ausführen
+            
+            ---
+            *Diese Issue wurde automatisch erstellt*
+            `,
+            labels: ['bug', 'automation', 'zeitungsanalyse']
+          });
+
+# Zusätzlicher Job für Wochenend-Statistiken
+  weekly-stats:
+    runs-on: ubuntu-latest
+    # Nur Sonntags ausführen
+    if: github.event.schedule == '0 6 * * 0'
+    needs: analyze-newspapers
+    
+    steps:
+    - name: 📊 Wöchentliche Statistiken
+      env:
+        SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+        SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+      run: |
+        echo "📊 Erstelle Wochenstatistiken..."
+        python -c "
+        from supabase import create_client
+        import os
+        from datetime import datetime, timedelta
+        
+        supabase = create_client(os.getenv('SUPABASE_URL'), os.getenv('SUPABASE_ANON_KEY'))
+        
+        # Statistiken der letzten Woche
+        week_ago = (datetime.now() - timedelta(days=7)).isoformat()
+        
+        analyses = supabase.table('analyses').select('*').gte('created_at', week_ago).execute()
+        
+        total_analyses = len(analyses.data)
+        total_articles = sum(a['total_articles'] for a in analyses.data)
+        high_priority = sum(a['high_priority_count'] for a in analyses.data)
+        
+        print(f'📈 Wochenstatistiken:')
+        print(f'   📰 Analysen: {total_analyses}')
+        print(f'   📄 Artikel: {total_articles}') 
+        print(f'   🔥 Hohe Priorität: {high_priority}')
+        "
+        
+# Backup-Job falls Hauptjob fehlschlägt
+  backup-analysis:
+    runs-on: ubuntu-latest
+    if: failure()
+    needs: analyze-newspapers
+    
+    steps:
+    - name: ⏰ Warte und versuche erneut
+      run: |
+        echo "Hauptanalyse fehlgeschlagen - warte 10 Minuten und versuche erneut..."
+        sleep 600
+    
+    - name: 📥 Code auschecken
+      uses: actions/checkout@v4
+    
+    - name: 🐍 Python Setup
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+    
+    - name: 📦 Dependencies installieren
+      run: |
+        pip install google-generativeai supabase pypdf requests python-dotenv
+    
+    - name: 🔄 Backup-Analyse
+      env:
+        SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+        SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+        GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        STREAMLIT_APP_URL: ${{ secrets.STREAMLIT_APP_URL }}
+      run: |
+        echo "🔄 Starte Backup-Analyse..."
+        python auto_analyzer.py
