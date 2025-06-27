@@ -1,0 +1,37 @@
+# requirements.txt für automatische Zeitungsanalyse
+
+# Streamlit App Dependencies
+streamlit>=1.28.0
+google-generativeai>=0.3.0
+supabase>=2.0.0
+pandas>=2.0.0
+
+# PDF Processing
+pypdf>=3.0.0
+
+# HTTP Requests
+requests>=2.31.0
+
+# Environment Variables
+python-dotenv>=1.0.0
+
+# Utility Libraries
+python-dateutil>=2.8.0
+typing-extensions>=4.0.0
+
+# Optional: für erweiterte PDF-Verarbeitung
+# tesseract-ocr  # Für OCR falls PDFs gescannt sind
+# Pillow>=10.0.0  # Für Bildverarbeitung
+
+# Optional: für Web-Scraping falls direkte PDF-Links nicht verfügbar
+# selenium>=4.0.0
+# beautifulsoup4>=4.12.0
+# lxml>=4.9.0
+
+# Optional: für Email-Integration
+# imapclient>=2.3.0
+# pyzmail36>=1.0.4
+
+# Optional: für erweiterte Logging/Monitoring
+# loguru>=0.7.0
+# sentry-sdk>=1.32.0
